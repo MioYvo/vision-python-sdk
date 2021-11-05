@@ -6,17 +6,10 @@ import random
 import time
 import sys
 
-from visionpy.version import VERSION
+from httpx import Timeout
 
-DEFAULT_TIMEOUT = 10.0
-DEFAULT_API_KEYS = [
-    'f92221d5-7056-4366-b96f-65d3662ec2d9',
-    '1e0a625f-cfa5-43ee-ba41-a09db1aae55f',
-    'f399168e-2259-481c-90fc-6b3d984c5463',
-    'da63253b-aa9c-46e7-a4e8-22d259a8026d',
-    '88c10958-af7b-4d5a-8eef-6e84bf5fb809',
-    '169bb4b3-cbe8-449a-984e-80e9adacac55',
-]
+from visionpy.defaults import DEFAULT_TIMEOUT, DEFAULT_API_KEYS
+from visionpy.version import VERSION
 
 
 class HTTPProvider(object):
@@ -57,20 +50,19 @@ class HTTPProvider(object):
             self._default_api_keys = self._api_keys.copy()
         else:
             self.use_api_key = False
-        self.sess = httpx.Client()
-        self.sess.headers["User-Agent"] = f"Visionpy/{VERSION}"
 
+        self.headers = {"User-Agent": f"Visionpy/{VERSION}"}
         self.timeout = timeout
-        """Request timeout in second."""
+        self.client = httpx.Client(headers=self.headers, timeout=Timeout(self.timeout))
 
     def make_request(self, method: str, params: Any = None) -> dict:
         if self.use_api_key:
-            self.sess.headers["Vision-Pro-Api-Key"] = self.random_api_key
+            self.client.headers["Vision-Pro-Api-Key"] = self.random_api_key
 
         if params is None:
             params = {}
         url = urljoin(self.endpoint_uri, method)
-        resp = self.sess.post(url, json=params, timeout=self.timeout)
+        resp = self.client.post(url, json=params, timeout=self.timeout)
 
         if self.use_api_key:
             if resp.status_code == 403 and b'Exceed the user daily usage' in resp.content:
@@ -81,13 +73,21 @@ class HTTPProvider(object):
         resp.raise_for_status()
         return resp.json()
 
+    def make_get_request(self, method: str, params: Any = None) -> dict:
+        if params is None:
+            params = {}
+        url = urljoin(self.endpoint_uri, method)
+        resp = self.client.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
     @property
     def random_api_key(self):
         return random.choice(self._api_keys)
 
     def _handle_rate_limit(self):
         if len(self._api_keys) > 1:
-            self._api_keys.remove(self.sess.headers["Vision-Pro-Api-Key"])
+            self._api_keys.remove(self.client.headers["Vision-Pro-Api-Key"])
         else:
             print("W: Please add as-many API-Keys in HTTPProvider", file=sys.stderr)
             time.sleep(0.9)

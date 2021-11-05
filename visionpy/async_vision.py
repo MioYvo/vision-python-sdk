@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 import asyncio
 from typing import Union, Tuple
 import time
@@ -895,8 +895,10 @@ class AsyncVision(object):
     # Transaction handling
 
     async def broadcast(self, txn: AsyncTransaction) -> dict:
-        payload = await self.provider.make_request("/wallet/broadcasttransaction", txn.to_json())
+        payload = await self.provider.make_request("wallet/broadcasttransaction", txn.to_json())
         self._handle_api_error(payload)
+        if payload.get('txid') is None:
+            payload['txid'] = txn.txid
         return payload
 
     async def get_sign_weight(self, txn: AsyncTransaction) -> dict:
@@ -905,6 +907,165 @@ class AsyncVision(object):
     async def close(self):
         if not self.provider.client.is_closed:
             await self.provider.client.aclose()
+
+    async def list_exchanges(self) -> List[Optional[dict]]:
+        """
+        List all exchange pairs.
+        Returns:
+            List of exchanges
+        """
+        payload = await self.provider.make_get_request("wallet/listexchanges")
+        exchanges = payload.get('exchanges', [])
+        if isinstance(exchanges, list):
+            for exchange in exchanges:
+                exchange['creator_address'] = keys.to_base58check_address(exchange['creator_address'])
+        return exchanges
+
+    async def get_exchange_by_id(self, exchange_id: int) -> dict:
+        """
+        Query exchange pair based on id
+        Args:
+            exchange_id: Transaction Pair ID
+
+        Returns:
+            Exchange Details
+        """
+        payload = await self.provider.make_request("wallet/getexchangebyid", params=dict(id=exchange_id))
+        self._handle_api_error(payload)
+        payload['creator_address'] = keys.to_base58check_address(payload['creator_address'])
+        return payload
+
+    async def exchange_create(self,
+                        owner_address: str,
+                        first_token_id: str,
+                        first_token_balance: int,
+                        second_token_id: str,
+                        second_token_balance: int,
+                        permission_id: Optional[int] = None):
+        """
+        Creates a trading pair.
+        Args:
+            owner_address:
+            first_token_id: The first token's id, default hexString
+            first_token_balance: The first token's balance
+            second_token_id: The second token's id, default hexString
+            second_token_balance: The second token's balance
+            permission_id: Optional,for multi-signature use
+
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            first_token_id=first_token_id,
+            first_token_balance=first_token_balance,
+            second_token_id=second_token_id,
+            second_token_balance=second_token_balance,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = await self.provider.make_request("wallet/exchangecreate", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload
+
+    async def exchange_inject(self,
+                        owner_address: str,
+                        exchange_id: int,
+                        token_id: str,
+                        quant: int,
+                        permission_id: Optional[int] = None):
+        """
+        Injects capital into the transaction.
+        The purpose of injecting capital into the trading pair is to prevent price fluctuation
+            from affecting the transaction.
+        Args:
+            owner_address:  Transaction to the creator's address in hexString format or base58 format
+            exchange_id: Transaction Pair ID
+            token_id: Token ID; usually is the token name, which needs to be in hexString format.
+            quant: Number of capital injection tokens.
+            permission_id: Optional, for multi-signature use
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            exchange_id=exchange_id,
+            token_id=token_id,
+            quant=quant,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = await self.provider.make_request("wallet/exchangeinject", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload
+
+    async def exchange_withdraw(self,
+                          owner_address: str,
+                          exchange_id: int,
+                          token_id: str,
+                          quant: int,
+                          permission_id: Optional[int] = None):
+        """
+        Withdraws the transaction pair.
+        Args:
+            owner_address: Address of the transaction to the creator, in hexString format or base58 format
+            exchange_id: Transaction Pair ID
+            token_id: Token ID in hexString format; Usually is the token name.
+            quant: Number of tokens divested.
+            permission_id: Optional,for multi-signature use
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            exchange_id=exchange_id,
+            token_id=token_id,
+            quant=quant,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = await self.provider.make_request("wallet/exchangewithdraw", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload
+
+    async def exchange_transaction(self,
+                             owner_address: str,
+                             exchange_id: int,
+                             token_id: str,
+                             quant: int,
+                             expected: int,
+                             permission_id: Optional[int] = None):
+        """
+        Participate the transaction of exchange pair
+        Args:
+            owner_address: Trader's wallet address, in hex string format or base58 format.
+                This wallet contains the tokens you wish to sell, in order to gain the other token.
+            exchange_id: Transaction Pair ID
+            token_id: ID of the sold token, in hexString format.
+                For example, if you wanted to trade TRX for another token,
+                then the TRX id of "5f" goes in this parameter.
+            quant: Quantity of the token being sold. If TRX being sold, need to express in units of SUN.
+            expected: Expected quantity of the token being purchased.
+            permission_id: Optional,for multi-signature use
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            exchange_id=exchange_id,
+            token_id=token_id,
+            quant=quant,
+            expected=expected,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = await self.provider.make_request("wallet/exchangetransaction", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload
 
     async def __aenter__(self):
         return self

@@ -1,4 +1,4 @@
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Optional, List
 import time
 from pprint import pprint
 import json
@@ -88,7 +88,7 @@ class TransactionRet(dict):
                 try:
                     result = receipt.get('contractResult', [])
                     if result and len(result[0]) > (4 + 32) * 2:
-                        error_msg = vision_abi.decode_single('string', bytes.fromhex(result[0])[4 + 32 :])
+                        error_msg = vision_abi.decode_single('string', bytes.fromhex(result[0])[4 + 32:])
                         msg = "{}: {}".format(msg, error_msg)
                 except Exception:
                     pass
@@ -297,20 +297,20 @@ class Vs(object):
         )
 
     def asset_issue(
-        self,
-        owner: VAddress,
-        abbr: str,
-        total_supply: int,
-        *,
-        url: str,
-        name: str = None,
-        description: str = "",
-        start_time: int = None,
-        end_time: int = None,
-        precision: int = 6,
-        frozen_supply: list = None,
-        vs_num: int = 1,
-        num: int = 1,
+            self,
+            owner: VAddress,
+            abbr: str,
+            total_supply: int,
+            *,
+            url: str,
+            name: str = None,
+            description: str = "",
+            start_time: int = None,
+            end_time: int = None,
+            precision: int = 6,
+            frozen_supply: list = None,
+            vs_num: int = 1,
+            num: int = 1,
     ) -> TransactionBuilder:
         """Issue a VRC10 token.
 
@@ -381,7 +381,7 @@ class Vs(object):
         )
 
     def freeze_balance(
-        self, owner: VAddress, amount: int, resource: str = "ENTROPY", *, receiver: VAddress = None
+            self, owner: VAddress, amount: int, resource: str = "ENTROPY", *, receiver: VAddress = None
     ) -> "TransactionBuilder":
         """Freeze balance to get entropy or photon, for 3 days.
 
@@ -401,7 +401,7 @@ class Vs(object):
         return self._build_transaction("FreezeBalanceContract", payload)
 
     def unfreeze_balance(
-        self, owner: VAddress, resource: str = "ENTROPY", receiver: VAddress = None
+            self, owner: VAddress, resource: str = "ENTROPY", receiver: VAddress = None
     ) -> "TransactionBuilder":
         """Unfreeze balance to get VS back.
 
@@ -520,8 +520,8 @@ class Vision(object):
             return self._handle_api_error(payload["result"])
 
     # Address utilities
-
-    def generate_address(self, priv_key=None) -> dict:
+    @classmethod
+    def generate_address(cls, priv_key=None) -> dict:
         """Generate a random address."""
         if priv_key is None:
             priv_key = PrivateKey.random()
@@ -775,7 +775,7 @@ class Vision(object):
     def get_asset(self, id: int = None, issuer: VAddress = None) -> dict:
         """Get VRC10(asset) info by asset's id or issuer."""
         if id and issuer:
-            return ValueError("either query by id or issuer")
+            raise ValueError("either query by id or issuer")
         if id:
             return self.provider.make_request("wallet/getassetissuebyid", {"value": id, "visible": True})
         else:
@@ -838,7 +838,7 @@ class Vision(object):
         return ShieldedVRC20(contract)
 
     def trigger_const_smart_contract_function(
-        self, owner_address: VAddress, contract_address: VAddress, function_selector: str, parameter: str,
+            self, owner_address: VAddress, contract_address: VAddress, function_selector: str, parameter: str,
     ) -> str:
         ret = self.provider.make_request(
             "wallet/triggerconstantcontract",
@@ -856,7 +856,7 @@ class Vision(object):
             result = ret.get('constant_result', [])
             try:
                 if result and len(result[0]) > (4 + 32) * 2:
-                    error_msg = vision_abi.decode_single('string', bytes.fromhex(result[0])[4 + 32 :])
+                    error_msg = vision_abi.decode_single('string', bytes.fromhex(result[0])[4 + 32:])
                     msg = "{}: {}".format(msg, error_msg)
             except Exception:
                 pass
@@ -866,9 +866,170 @@ class Vision(object):
     # Transaction handling
 
     def broadcast(self, txn: Transaction) -> dict:
-        payload = self.provider.make_request("/wallet/broadcasttransaction", txn.to_json())
+        payload = self.provider.make_request("wallet/broadcasttransaction", txn.to_json())
         self._handle_api_error(payload)
+        if payload.get('txid') is None:
+            payload['txid'] = txn.txid
         return payload
 
     def get_sign_weight(self, txn: Transaction) -> dict:
         return self.provider.make_request("wallet/getsignweight", txn.to_json())
+
+    def list_exchanges(self) -> List[Optional[dict]]:
+        """
+        List all exchange pairs.
+        Returns:
+            List of exchanges
+        """
+        payload = self.provider.make_get_request("wallet/listexchanges")
+        exchanges = payload.get('exchanges', [])
+        if isinstance(exchanges, list):
+            for exchange in exchanges:
+                exchange['creator_address'] = keys.to_base58check_address(exchange['creator_address'])
+        return exchanges
+
+    def get_exchange_by_id(self, exchange_id: int) -> dict:
+        """
+        Query exchange pair based on id
+        Args:
+            exchange_id: Transaction Pair ID
+
+        Returns:
+            Exchange Details
+        """
+        payload = self.provider.make_request("wallet/getexchangebyid", params=dict(id=exchange_id))
+        self._handle_api_error(payload)
+        payload['creator_address'] = keys.to_base58check_address(payload['creator_address'])
+        return payload
+
+    def exchange_create(self,
+                        owner_address: str,
+                        first_token_id: str,
+                        first_token_balance: int,
+                        second_token_id: str,
+                        second_token_balance: int,
+                        permission_id: Optional[int] = None):
+        """
+        Creates a trading pair.
+        Args:
+            owner_address:
+            first_token_id: The first token's id, default hexString
+            first_token_balance: The first token's balance
+            second_token_id: The second token's id, default hexString
+            second_token_balance: The second token's balance
+            permission_id: Optional,for multi-signature use
+
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            first_token_id=first_token_id,
+            first_token_balance=first_token_balance,
+            second_token_id=second_token_id,
+            second_token_balance=second_token_balance,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = self.provider.make_request("wallet/exchangecreate", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload
+
+    def exchange_inject(self,
+                        owner_address: str,
+                        exchange_id: int,
+                        token_id: str,
+                        quant: int,
+                        permission_id: Optional[int] = None):
+        """
+        Injects capital into the transaction.
+        The purpose of injecting capital into the trading pair is to prevent price fluctuation
+            from affecting the transaction.
+        Args:
+            owner_address:  Transaction to the creator's address in hexString format or base58 format
+            exchange_id: Transaction Pair ID
+            token_id: Token ID; usually is the token name, which needs to be in hexString format.
+            quant: Number of capital injection tokens.
+            permission_id: Optional, for multi-signature use
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            exchange_id=exchange_id,
+            token_id=token_id,
+            quant=quant,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = self.provider.make_request("wallet/exchangeinject", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload
+
+    def exchange_withdraw(self,
+                          owner_address: str,
+                          exchange_id: int,
+                          token_id: str,
+                          quant: int,
+                          permission_id: Optional[int] = None):
+        """
+        Withdraws the transaction pair.
+        Args:
+            owner_address: Address of the transaction to the creator, in hexString format or base58 format
+            exchange_id: Transaction Pair ID
+            token_id: Token ID in hexString format; Usually is the token name.
+            quant: Number of tokens divested.
+            permission_id: Optional,for multi-signature use
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            exchange_id=exchange_id,
+            token_id=token_id,
+            quant=quant,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = self.provider.make_request("wallet/exchangewithdraw", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload
+
+    def exchange_transaction(self,
+                             owner_address: str,
+                             exchange_id: int,
+                             token_id: str,
+                             quant: int,
+                             expected: int,
+                             permission_id: Optional[int] = None):
+        """
+        Participate the transaction of exchange pair
+        Args:
+            owner_address: Trader's wallet address, in hex string format or base58 format.
+                This wallet contains the tokens you wish to sell, in order to gain the other token.
+            exchange_id: Transaction Pair ID
+            token_id: ID of the sold token, in hexString format.
+                For example, if you wanted to trade TRX for another token,
+                then the TRX id of "5f" goes in this parameter.
+            quant: Quantity of the token being sold. If TRX being sold, need to express in units of SUN.
+            expected: Expected quantity of the token being purchased.
+            permission_id: Optional,for multi-signature use
+        Returns:
+            # TODO process payload
+        """
+        params = dict(
+            owner_address=keys.to_hex_address(owner_address),
+            exchange_id=exchange_id,
+            token_id=token_id,
+            quant=quant,
+            expected=expected,
+        )
+        if permission_id:
+            params['permission_id'] = permission_id
+        payload = self.provider.make_request("wallet/exchangetransaction", params=params)
+        self._handle_api_error(payload)
+        # TODO process payload
+        return payload

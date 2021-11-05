@@ -63,4 +63,4 @@ vs_abi = ABICodec(registry)
 # alias
 vision_abi = vs_abi
 
-__all__ = ["vs_abi"]
+__all__ = ["vs_abi", "vision_abi"]
